@@ -1,8 +1,8 @@
 const express = require('express');
 const cors = require('cors');
-const mongoose = require('mongoose');
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 
@@ -16,293 +16,324 @@ app.use((req, res, next) => {
   next();
 });
 
-// ============ DATABASE CONNECTION ============
-const DB_URL = process.env.DB_URL || 'mongodb://localhost:27017/crm-db';
+// ============ SUPABASE CONNECTION ============
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const PORT = process.env.PORT || 5000;
 
-mongoose.connect(DB_URL, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-  .then(() => {
-    console.log('[✓] MongoDB connected successfully');
-  })
-  .catch(err => {
-    console.error('[✗] MongoDB connection error:', err.message);
-    process.exit(1);
-  });
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error('[✗] Missing Supabase credentials in .env file');
+  process.exit(1);
+}
 
-// ============ SCHEMA & MODELS ============
-const customerSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-    lowercase: true
-  },
-  phone: {
-    type: String,
-    trim: true
-  },
-  address: {
-    type: String,
-    trim: true
-  },
-  status: {
-    type: String,
-    enum: ['active', 'inactive'],
-    default: 'active'
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  }
-});
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+console.log('[✓] Supabase initialized successfully');
 
-const Customer = mongoose.model('Customer', customerSchema);
+// ============ API ROUTES ============
 
-// ============ ERROR HANDLER ============
-const errorHandler = (err, req, res, next) => {
-  console.error('[ERROR]', err.message);
-  const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal Server Error';
-  res.status(statusCode).json({
-    success: false,
-    error: message,
-    timestamp: new Date().toISOString()
-  });
-};
-
-// ============ ROUTES ============
-
-// Health Check Endpoint (BẮTBUỘC)
-app.get('/api/health', (req, res) => {
+// 1. Health Check
+app.get('/api/health', async (req, res) => {
   try {
-    console.log('[✓] Health check requested');
-    res.status(200).json({
-      status: 'ok',
-      message: 'Simple CRM API is healthy',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime()
-    });
-  } catch (error) {
-    console.error('[✗] Health check error:', error.message);
-    res.status(500).json({
-      status: 'error',
-      message: error.message
-    });
-  }
-});
+    const { error } = await supabase
+      .from('customers')
+      .select('count()', { count: 'exact', head: true });
 
-// GET all customers
-app.get('/api/customers', async (req, res, next) => {
-  try {
-    console.log('[→] GET /api/customers');
-    const customers = await Customer.find().sort({ createdAt: -1 });
-    console.log(`[✓] Retrieved ${customers.length} customers`);
-    res.status(200).json({
+    if (error) throw error;
+
+    res.json({
       success: true,
-      data: customers,
-      count: customers.length,
-      message: 'Customers retrieved successfully'
+      message: 'API is running',
+      database: 'connected',
+      timestamp: new Date().toISOString()
     });
-  } catch (error) {
-    console.error('[✗] GET /api/customers error:', error.message);
-    next(error);
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: 'Health check failed',
+      error: err.message
+    });
   }
 });
 
-// GET customer by ID
-app.get('/api/customers/:id', async (req, res, next) => {
+// 2. Lấy tất cả khách hàng
+app.get('/api/customers', async (req, res) => {
   try {
-    console.log(`[→] GET /api/customers/${req.params.id}`);
-    const customer = await Customer.findById(req.params.id);
-    
-    if (!customer) {
-      console.warn('[!] Customer not found:', req.params.id);
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data: data || [],
+      count: data?.length || 0
+    });
+  } catch (err) {
+    console.error('[ERROR] Get customers:', err.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch customers',
+      error: err.message
+    });
+  }
+});
+
+// 3. Tìm kiếm khách hàng
+app.get('/api/customers/search', async (req, res) => {
+  try {
+    const { query = '', status = null, limit = 20, offset = 0 } = req.query;
+
+    let queryBuilder = supabase
+      .from('customers')
+      .select('*', { count: 'exact' })
+      .is('deleted_at', null);
+
+    if (status) {
+      queryBuilder = queryBuilder.eq('status', status);
+    }
+
+    if (query) {
+      queryBuilder = queryBuilder.or(
+        `name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%,address.ilike.%${query}%`
+      );
+    }
+
+    const { data, error, count } = await queryBuilder
+      .order('created_at', { ascending: false })
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data: data || [],
+      total_count: count || 0,
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+  } catch (err) {
+    console.error('[ERROR] Search customers:', err.message);
+    res.status(500).json({
+      success: false,
+      message: 'Search failed',
+      error: err.message
+    });
+  }
+});
+
+// 4. Lấy chi tiết khách hàng
+app.get('/api/customers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('id', id)
+      .is('deleted_at', null)
+      .single();
+
+    if (error || !data) {
       return res.status(404).json({
         success: false,
         message: 'Customer not found'
       });
     }
-    
-    console.log('[✓] Customer found:', customer._id);
-    res.status(200).json({
+
+    res.json({
       success: true,
-      data: customer
+      data
     });
-  } catch (error) {
-    console.error('[✗] GET /api/customers/:id error:', error.message);
-    next(error);
+  } catch (err) {
+    console.error('[ERROR] Get customer:', err.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch customer',
+      error: err.message
+    });
   }
 });
 
-// CREATE customer (POST)
-app.post('/api/customers', async (req, res, next) => {
+// 5. Thêm khách hàng mới
+app.post('/api/customers', async (req, res) => {
   try {
-    const { name, email, phone, address } = req.body;
-    
-    console.log('[→] POST /api/customers', { name, email });
-    
+    const { name, email, phone, address, notes } = req.body;
+
     if (!name || !email) {
-      console.warn('[!] Missing required fields: name or email');
       return res.status(400).json({
         success: false,
         message: 'Name and email are required'
       });
     }
-    
-    const customer = new Customer({
-      name,
-      email,
-      phone: phone || '',
-      address: address || ''
-    });
-    
-    await customer.save();
-    console.log('[✓] Customer created:', customer._id);
-    
+
+    const { data, error } = await supabase
+      .from('customers')
+      .insert([
+        {
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone?.trim() || null,
+          address: address?.trim() || null,
+          notes: notes?.trim() || null,
+          status: 'active'
+        }
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already exists'
+        });
+      }
+      throw error;
+    }
+
     res.status(201).json({
       success: true,
-      data: customer,
-      message: 'Customer created successfully'
+      message: 'Customer created successfully',
+      data
     });
-  } catch (error) {
-    if (error.code === 11000) {
-      console.warn('[!] Email already exists:', error.message);
+  } catch (err) {
+    console.error('[ERROR] Create customer:', err.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create customer',
+      error: err.message
+    });
+  }
+});
+
+// 6. Cập nhật khách hàng
+app.put('/api/customers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, phone, address, notes, status } = req.body;
+
+    if (!name || !email) {
       return res.status(400).json({
         success: false,
-        message: 'Email already exists'
+        message: 'Name and email are required'
       });
     }
-    console.error('[✗] POST /api/customers error:', error.message);
-    next(error);
-  }
-});
 
-// UPDATE customer (PUT)
-app.put('/api/customers/:id', async (req, res, next) => {
-  try {
-    console.log(`[→] PUT /api/customers/${req.params.id}`, req.body);
-    
-    const customer = await Customer.findByIdAndUpdate(
-      req.params.id,
-      { ...req.body, updatedAt: new Date() },
-      { new: true, runValidators: true }
-    );
-    
-    if (!customer) {
-      console.warn('[!] Customer not found for update:', req.params.id);
+    const { data, error } = await supabase
+      .from('customers')
+      .update({
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone?.trim() || null,
+        address: address?.trim() || null,
+        notes: notes?.trim() || null,
+        status: status || 'active'
+      })
+      .eq('id', id)
+      .is('deleted_at', null)
+      .select()
+      .single();
+
+    if (error || !data) {
+      if (error?.code === '23505') {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already exists'
+        });
+      }
       return res.status(404).json({
         success: false,
         message: 'Customer not found'
       });
     }
-    
-    console.log('[✓] Customer updated:', customer._id);
-    res.status(200).json({
+
+    res.json({
       success: true,
-      data: customer,
-      message: 'Customer updated successfully'
+      message: 'Customer updated successfully',
+      data
     });
-  } catch (error) {
-    console.error('[✗] PUT /api/customers/:id error:', error.message);
-    next(error);
+  } catch (err) {
+    console.error('[ERROR] Update customer:', err.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update customer',
+      error: err.message
+    });
   }
 });
 
-// DELETE customer (DELETE)
-app.delete('/api/customers/:id', async (req, res, next) => {
+// 7. Xóa khách hàng (Soft Delete)
+app.delete('/api/customers/:id', async (req, res) => {
   try {
-    console.log(`[→] DELETE /api/customers/${req.params.id}`);
-    
-    const customer = await Customer.findByIdAndDelete(req.params.id);
-    
-    if (!customer) {
-      console.warn('[!] Customer not found for delete:', req.params.id);
+    const { id } = req.params;
+
+    const { data, error } = await supabase
+      .from('customers')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id)
+      .is('deleted_at', null)
+      .select()
+      .single();
+
+    if (error || !data) {
       return res.status(404).json({
         success: false,
         message: 'Customer not found'
       });
     }
-    
-    console.log('[✓] Customer deleted:', req.params.id);
-    res.status(200).json({
+
+    res.json({
       success: true,
       message: 'Customer deleted successfully'
     });
-  } catch (error) {
-    console.error('[✗] DELETE /api/customers/:id error:', error.message);
-    next(error);
+  } catch (err) {
+    console.error('[ERROR] Delete customer:', err.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete customer',
+      error: err.message
+    });
   }
 });
 
-// SEARCH customers
-app.get('/api/customers/search/:keyword', async (req, res, next) => {
-  try {
-    const { keyword } = req.params;
-    console.log(`[→] GET /api/customers/search/${keyword}`);
-    
-    const customers = await Customer.find({
-      $or: [
-        { name: { $regex: keyword, $options: 'i' } },
-        { email: { $regex: keyword, $options: 'i' } },
-        { phone: { $regex: keyword, $options: 'i' } }
-      ]
-    });
-    
-    console.log(`[✓] Search found ${customers.length} results`);
-    res.status(200).json({
-      success: true,
-      data: customers,
-      count: customers.length,
-      keyword: keyword
-    });
-  } catch (error) {
-    console.error('[✗] Search error:', error.message);
-    next(error);
-  }
-});
-
-// 404 Handler
-app.use((req, res) => {
-  console.warn('[!] 404 Not Found:', req.path);
-  res.status(404).json({
+// ============ ERROR HANDLER ============
+app.use((err, req, res, next) => {
+  console.error('[ERROR]', err.message);
+  res.status(500).json({
     success: false,
-    message: 'API endpoint not found',
-    path: req.path
+    message: 'Internal Server Error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
-// Global Error Handler
-app.use(errorHandler);
+// ============ 404 HANDLER ============
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Route not found'
+  });
+});
 
-// ============ START SERVER ============
+// ============ SERVER START ============
 app.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════╗
-║   Simple CRM Backend - Pizza 4P's      ║
-║   Server running on port ${PORT}           ║
-║   Database: Connected                  ║
+║  🍕 SIMPLE CRM - PIZZA 4P'S BACKEND   ║
+║  Server: http://localhost:${PORT}        ║
+║  Status: ✓ Running                     ║
 ╚════════════════════════════════════════╝
   `);
-});
-
-// Graceful Shutdown
-process.on('SIGINT', () => {
-  console.log('\n[!] Server shutting down...');
-  mongoose.connection.close();
-  process.exit(0);
+  console.log('Available endpoints:');
+  console.log('  GET    /api/health');
+  console.log('  GET    /api/customers');
+  console.log('  GET    /api/customers/search');
+  console.log('  GET    /api/customers/:id');
+  console.log('  POST   /api/customers');
+  console.log('  PUT    /api/customers/:id');
+  console.log('  DELETE /api/customers/:id');
 });
 
 module.exports = app;
