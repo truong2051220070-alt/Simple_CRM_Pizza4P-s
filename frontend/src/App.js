@@ -53,7 +53,7 @@ function App() {
       if (editingId) {
         // Update
         response = await axios.put(`${API_URL}/api/customers/${editingId}`, form);
-        setCustomers(customers.map(c => c._id === editingId ? response.data.data : c));
+        setCustomers(customers.map(c => c.id === editingId ? response.data.data : c));
         setSuccess('Customer updated successfully');
       } else {
         // Create
@@ -85,7 +85,7 @@ function App() {
       phone: customer.phone,
       address: customer.address
     });
-    setEditingId(customer._id);
+    setEditingId(customer.id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -102,7 +102,7 @@ function App() {
     setLoading(true);
     try {
       await axios.delete(`${API_URL}/api/customers/${id}`);
-      setCustomers(customers.filter(c => c._id !== id));
+      setCustomers(customers.filter(c => c.id !== id));
       setSuccess('Customer deleted successfully');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
@@ -123,7 +123,9 @@ function App() {
 
     setLoading(true);
     try {
-      const response = await axios.get(`${API_URL}/api/customers/search/${keyword}`);
+      const response = await axios.get(`${API_URL}/api/customers/search`, {
+        params: { query: keyword }
+      });
       setCustomers(response.data.data);
       setError('');
     } catch (err) {
@@ -234,7 +236,7 @@ function App() {
                 </thead>
                 <tbody>
                   {customers.map((customer) => (
-                    <tr key={customer._id}>
+                    <tr key={customer.id}>
                       <td><strong>{customer.name}</strong></td>
                       <td>{customer.email}</td>
                       <td>{customer.phone || '-'}</td>
@@ -253,7 +255,7 @@ function App() {
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDelete(customer._id)}
+                          onClick={() => handleDelete(customer.id)}
                           className="btn btn-sm btn-delete"
                           disabled={loading}
                         >
