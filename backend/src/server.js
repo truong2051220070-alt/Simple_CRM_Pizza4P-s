@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const ws = require('ws');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 const { createClient } = require('@supabase/supabase-js');
 
@@ -12,7 +13,13 @@ app.use(express.json());
 
 // Logging Middleware
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  const start = Date.now();
+  console.log(`[${new Date().toISOString()}] --> ${req.method} ${req.path}`);
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    const icon = res.statusCode >= 400 ? '[✗]' : '[✓]';
+    console.log(`[${new Date().toISOString()}] ${icon} ${req.method} ${req.path} ${res.statusCode} (${ms}ms)`);
+  });
   next();
 });
 
@@ -26,7 +33,9 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  realtime: { transport: ws }
+});
 console.log('[✓] Supabase initialized successfully');
 
 // ============ API ROUTES ============
@@ -36,9 +45,17 @@ app.get('/api/health', async (req, res) => {
   try {
     const { error } = await supabase
       .from('customers')
-      .select('count()', { count: 'exact', head: true });
+      .select('id')
+      .limit(1);
 
-    if (error) throw error;
+    if (error) {
+      console.error('[ERROR] Health check - DB error:', JSON.stringify(error));
+      return res.status(500).json({
+        success: false,
+        message: 'Health check failed',
+        error: error.message || error.details || JSON.stringify(error)
+      });
+    }
 
     res.json({
       success: true,
@@ -47,10 +64,11 @@ app.get('/api/health', async (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (err) {
+    console.error('[ERROR] Health check - Exception:', err);
     res.status(500).json({
       success: false,
       message: 'Health check failed',
-      error: err.message
+      error: err.message || String(err)
     });
   }
 });
@@ -265,16 +283,15 @@ app.put('/api/customers/:id', async (req, res) => {
   }
 });
 
-// 7. Xóa khách hàng (Soft Delete)
+// 7. Xóa khách hàng (Hard Delete)
 app.delete('/api/customers/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
     const { data, error } = await supabase
       .from('customers')
-      .update({ deleted_at: new Date().toISOString() })
+      .delete()
       .eq('id', id)
-      .is('deleted_at', null)
       .select()
       .single();
 
