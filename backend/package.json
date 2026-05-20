@@ -12,10 +12,11 @@
   "author": "Ông Thân Quốc Trường, Lê Duy Phước",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
+    "@supabase/supabase-js": "^2.105.4",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
-    "mongoose": "^7.0.3"
+    "express": "^4.18.2",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "nodemon": "^2.0.20"
