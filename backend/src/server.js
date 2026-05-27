@@ -13,13 +13,7 @@ app.use(express.json());
 
 // Logging Middleware
 app.use((req, res, next) => {
-  const start = Date.now();
-  console.log(`[${new Date().toISOString()}] --> ${req.method} ${req.path}`);
-  res.on('finish', () => {
-    const ms = Date.now() - start;
-    const icon = res.statusCode >= 400 ? '[✗]' : '[✓]';
-    console.log(`[${new Date().toISOString()}] ${icon} ${req.method} ${req.path} ${res.statusCode} (${ms}ms)`);
-  });
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
 
@@ -28,14 +22,22 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const PORT = process.env.PORT || 5000;
 
+console.log('[DEBUG] Environment variables:');
+console.log('  SUPABASE_URL:', SUPABASE_URL ? '✓ Loaded' : '✗ Missing');
+console.log('  SUPABASE_ANON_KEY:', SUPABASE_ANON_KEY ? `✓ Loaded (${SUPABASE_ANON_KEY.substring(0, 20)}...)` : '✗ Missing');
+console.log('  PORT:', PORT);
+
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   console.error('[✗] Missing Supabase credentials in .env file');
   process.exit(1);
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  realtime: { transport: ws }
+  realtime: {
+    transport: ws
+  }
 });
+
 console.log('[✓] Supabase initialized successfully');
 
 // ============ API ROUTES ============
@@ -43,17 +45,34 @@ console.log('[✓] Supabase initialized successfully');
 // 1. Health Check
 app.get('/api/health', async (req, res) => {
   try {
-    const { error } = await supabase
+    console.log('[HEALTH CHECK] Testing Supabase connection...');
+    
+    // Test 1: Simple select
+    const { data: testData, error: testError } = await supabase
       .from('customers')
-      .select('id')
+      .select('*')
       .limit(1);
 
-    if (error) {
-      console.error('[ERROR] Health check - DB error:', JSON.stringify(error));
+    console.log('[HEALTH CHECK] Query result:', { testData, testError });
+
+    if (testError) {
+      console.error('[HEALTH CHECK ERROR] Full error object:');
+      console.error('  Status:', testError.status);
+      console.error('  Code:', testError.code);
+      console.error('  Message:', testError.message);
+      console.error('  Details:', testError.details);
+      console.error('  Hint:', testError.hint);
+      console.error('  Full:', JSON.stringify(testError, null, 2));
+      
+      const errorMsg = testError.message || testError.code || testError.status || 'Unknown Supabase error';
       return res.status(500).json({
         success: false,
-        message: 'Health check failed',
-        error: error.message || error.details || JSON.stringify(error)
+        message: 'Database connection failed',
+        error: errorMsg,
+        debug: {
+          status: testError.status,
+          code: testError.code
+        }
       });
     }
 
@@ -64,11 +83,12 @@ app.get('/api/health', async (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (err) {
-    console.error('[ERROR] Health check - Exception:', err);
+    const errorMsg = err?.message || String(err) || 'Unknown error';
+    console.error('[HEALTH CHECK EXCEPTION]', errorMsg, err);
     res.status(500).json({
       success: false,
       message: 'Health check failed',
-      error: err.message || String(err)
+      error: errorMsg
     });
   }
 });
@@ -109,10 +129,12 @@ app.get('/api/customers/search', async (req, res) => {
       .select('*', { count: 'exact' })
       .is('deleted_at', null);
 
+    // Filter by status
     if (status) {
       queryBuilder = queryBuilder.eq('status', status);
     }
 
+    // Search by name, email, phone, address
     if (query) {
       queryBuilder = queryBuilder.or(
         `name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%,address.ilike.%${query}%`
@@ -180,6 +202,7 @@ app.post('/api/customers', async (req, res) => {
   try {
     const { name, email, phone, address, notes } = req.body;
 
+    // Validation
     if (!name || !email) {
       return res.status(400).json({
         success: false,
@@ -233,6 +256,7 @@ app.put('/api/customers/:id', async (req, res) => {
     const { id } = req.params;
     const { name, email, phone, address, notes, status } = req.body;
 
+    // Validation
     if (!name || !email) {
       return res.status(400).json({
         success: false,
@@ -283,15 +307,16 @@ app.put('/api/customers/:id', async (req, res) => {
   }
 });
 
-// 7. Xóa khách hàng (Hard Delete)
+// 7. Xóa khách hàng (Soft Delete)
 app.delete('/api/customers/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
     const { data, error } = await supabase
       .from('customers')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
       .eq('id', id)
+      .is('deleted_at', null)
       .select()
       .single();
 

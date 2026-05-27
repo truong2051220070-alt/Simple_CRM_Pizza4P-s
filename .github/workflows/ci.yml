@@ -116,14 +116,41 @@ jobs:
       
       - name: Check for Secrets
         run: |
-          if grep -r "mongodb://.*:.*@" . --include="*.js" --include="*.json" --exclude-dir=node_modules; then
-            echo "ERROR: Credentials found in source code!"
+          # Check for hardcoded Supabase credentials
+          if grep -r "https://.*\.supabase\.co" . --include="*.js" --include="*.json" --include="*.jsx" --include="*.ts" --include="*.tsx" --exclude-dir=node_modules --exclude-dir=dist; then
+            echo "WARNING: Supabase URL found in source code (should use environment variables)"
+          fi
+          
+          # Check for hardcoded API keys patterns
+          if grep -r "eyJ.*eyJ" . --include="*.js" --include="*.json" --include="*.jsx" --include="*.ts" --include="*.tsx" --exclude-dir=node_modules --exclude-dir=dist; then
+            echo "ERROR: Potential JWT tokens found in source code!"
             exit 1
           fi
+          
           echo "✓ No hardcoded secrets found"
       
       - name: Check Environment Variables
         run: |
-          echo "✓ Checking environment configuration..."
-          test -f backend/.env.example || echo "WARNING: backend/.env.example missing"
-          test -f frontend/.env.example || echo "WARNING: frontend/.env.example missing"
+          echo "✓ Checking Supabase environment configuration..."
+          
+          # Check backend .env.example
+          if [ -f backend/.env.example ]; then
+            if grep -q "SUPABASE_URL\|SUPABASE_ANON_KEY" backend/.env.example; then
+              echo "✓ Backend .env.example contains Supabase config"
+            else
+              echo "WARNING: backend/.env.example missing Supabase variables (SUPABASE_URL, SUPABASE_ANON_KEY)"
+            fi
+          else
+            echo "WARNING: backend/.env.example missing"
+          fi
+          
+          # Check frontend .env.example
+          if [ -f frontend/.env.example ]; then
+            if grep -q "VITE_SUPABASE_URL\|VITE_SUPABASE_ANON_KEY" frontend/.env.example; then
+              echo "✓ Frontend .env.example contains Supabase config"
+            else
+              echo "WARNING: frontend/.env.example missing Supabase variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)"
+            fi
+          else
+            echo "WARNING: frontend/.env.example missing"
+          fi

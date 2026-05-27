@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: simple-crm-backend
     ports:
-      - "5000:5000"
+      - "5002:5000"
     env_file:
       - .env
     networks:
@@ -28,8 +28,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - VITE_API_URL=http://localhost:5000
     container_name: simple-crm-frontend
     ports:
       - "3001:3000"
