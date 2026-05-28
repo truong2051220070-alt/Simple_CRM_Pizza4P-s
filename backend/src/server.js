@@ -40,6 +40,20 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 console.log('[✓] Supabase initialized successfully');
 
+// ============ VALIDATION FUNCTIONS ============
+const validateEmail = (email) => {
+  // Email regex: checks for valid email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
+
+const validatePhone = (phone) => {
+  if (!phone) return true; // Phone is optional
+  // Phone regex: Vietnamese (10-11 digits) or international format
+  const phoneRegex = /^(\+?84|0)?[1-9][0-9]{8,9}$|^\+[1-9][0-9]{1,14}$/;
+  return phoneRegex.test(phone.replace(/[\s\-().]/g, ''));
+};
+
 // ============ API ROUTES ============
 
 // 1. Health Check
@@ -210,6 +224,22 @@ app.post('/api/customers', async (req, res) => {
       });
     }
 
+    // Email format validation
+    if (!validateEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email format. Example: customer@gmail.com'
+      });
+    }
+
+    // Phone format validation
+    if (phone && !validatePhone(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid phone format. Example: 0912345678 or +84912345678'
+      });
+    }
+
     const { data, error } = await supabase
       .from('customers')
       .insert([
@@ -227,7 +257,7 @@ app.post('/api/customers', async (req, res) => {
 
     if (error) {
       if (error.code === '23505') {
-        return res.status(400).json({
+        return res.status(409).json({
           success: false,
           message: 'Email already exists'
         });
@@ -264,6 +294,22 @@ app.put('/api/customers/:id', async (req, res) => {
       });
     }
 
+    // Email format validation
+    if (!validateEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email format. Example: customer@gmail.com'
+      });
+    }
+
+    // Phone format validation
+    if (phone && !validatePhone(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid phone format. Example: 0912345678 or +84912345678'
+      });
+    }
+
     const { data, error } = await supabase
       .from('customers')
       .update({
@@ -281,7 +327,7 @@ app.put('/api/customers/:id', async (req, res) => {
 
     if (error || !data) {
       if (error?.code === '23505') {
-        return res.status(400).json({
+        return res.status(409).json({
           success: false,
           message: 'Email already exists'
         });
