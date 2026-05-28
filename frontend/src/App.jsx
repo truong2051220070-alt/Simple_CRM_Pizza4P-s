@@ -114,10 +114,9 @@ function App() {
     }
   };
 
-  // Search customers
-  const handleSearch = async (keyword) => {
-    setSearch(keyword);
-    if (!keyword) {
+  // Search customers (called by button click)
+  const handleSearchClick = async () => {
+    if (!search.trim()) {
       fetchCustomers();
       return;
     }
@@ -125,7 +124,7 @@ function App() {
     setLoading(true);
     try {
       const response = await axios.get(`${API_URL}/api/customers/search`, {
-        params: { query: keyword }
+        params: { query: search.trim() }
       });
       setCustomers(response.data.data);
       setError('');
@@ -135,6 +134,12 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Clear search and show all
+  const handleClearSearch = () => {
+    setSearch('');
+    fetchCustomers();
   };
 
   return (
@@ -205,14 +210,35 @@ function App() {
 
         {/* Search Section */}
         <section className="search-section">
-          <input
-            type="text"
-            placeholder="Search by name, email, or phone..."
-            value={search}
-            onChange={(e) => handleSearch(e.target.value)}
-            className="search-input"
-            disabled={loading}
-          />
+          <div className="search-container">
+            <input
+              type="text"
+              placeholder="Search by name, email, or phone..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="search-input"
+              disabled={loading}
+              onKeyPress={(e) => e.key === 'Enter' && handleSearchClick()}
+            />
+            <button
+              onClick={handleSearchClick}
+              disabled={loading}
+              className="btn btn-search"
+              title="Search"
+            >
+              🔍
+            </button>
+            {search && (
+              <button
+                onClick={handleClearSearch}
+                disabled={loading}
+                className="btn btn-clear"
+                title="Clear"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </section>
 
         {/* Customers Table */}
