@@ -1,5 +1,15 @@
 {
   "version": 2,
   "buildCommand": "npm install && npm run build",
-  "outputDirectory": "dist"
+  "outputDirectory": "dist",
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "nodejs18.x",
+      "includeFiles": "**"
+    }
+  },
+  "env": {
+    "SUPABASE_URL": "@supabase_url",
+    "SUPABASE_ANON_KEY": "@supabase_anon_key"
+  }
 }

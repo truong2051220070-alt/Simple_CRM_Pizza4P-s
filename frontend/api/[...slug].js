@@ -1,11 +1,9 @@
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseKey) {
-  module.exports = async (req, res) => {
-    res.status(500).json({ error: 'Supabase credentials not configured' });
-  };
-}
+console.log('[API DEBUG] SUPABASE_URL available:', !!process.env.SUPABASE_URL);
+console.log('[API DEBUG] SUPABASE_ANON_KEY available:', !!process.env.SUPABASE_ANON_KEY);
+console.log('[API DEBUG] All env vars:', Object.keys(process.env).filter(k => k.includes('SUPABASE')));
 
 // Helper to make Supabase API calls
 async function supabaseRequest(method, path, body = null, query = '') {
@@ -50,6 +48,17 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
+  }
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.error('[API ERROR] Supabase credentials missing!');
+    return res.status(500).json({ 
+      error: 'Supabase credentials not configured',
+      debug: {
+        supabaseUrl: supabaseUrl ? 'SET' : 'MISSING',
+        supabaseKey: supabaseKey ? 'SET' : 'MISSING'
+      }
+    });
   }
 
   const { slug } = req.query;
