@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
-// Use relative API paths - works in both Docker and local
-const API_URL = '';
+// Use Vite environment variable or fallback for different environments
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 function App() {
   const [customers, setCustomers] = useState([]);
